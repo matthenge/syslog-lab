@@ -1,0 +1,19 @@
+# Custom Suricata rules for lab
+
+# Rule to detect access to admin panel (for demonstration purposes)
+alert http $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"POLICY Unauthorized admin panel access attempt"; flow:established,to_server; http.uri; content:"/admin"; classtype:policy-violation; sid:1000001; rev:1;)
+
+# Rule to detect potential SSH brute force attempts
+alert ssh any any -> $HOME_NET $SSH_PORTS (msg:"INDICATOR-SCAN SSH brute force attempt"; flow:to_server; threshold:type threshold, track by_src, count 5, seconds 60; classtype:attempted-admin; sid:1000002; rev:1;)
+
+# Rule to detect potential port scanning
+alert tcp any any -> $HOME_NET any (msg:"INDICATOR-SCAN TCP port scan"; flow:stateless; flags:S; threshold:type threshold, track by_src, count 50, seconds 60; classtype:attempted-recon; sid:1000003; rev:1;)
+
+# Rule to detect HTTP SQL injection attempts
+alert http $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"WEB-ATTACK SQL Injection Attempt"; flow:established,to_server; http.uri; content:"union"; nocase; content:"select"; nocase; distance:0; pcre:"/union\s+select/i"; classtype:web-application-attack; sid:1000004; rev:1;)
+
+# Rule to detect excessive HTTP errors (potential web attack)
+alert http $EXTERNAL_NET any -> $HOME_NET $HTTP_PORTS (msg:"INDICATOR-COMPROMISE Excessive HTTP 404 Errors"; flow:established,to_server; threshold:type threshold, track by_src, count 20, seconds 60; classtype:attempted-recon; sid:1000005; rev:1;)
+
+# Rule to detect potential DDoS attack
+alert tcp any any -> $HOME_NET any (msg:"DOS SYN flood"; flow:stateless; flags:S; threshold:type both, track by_src, count 100, seconds 10; classtype:attempted-dos; sid:1000006; rev:1;)

@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  # Central Log Management with Graylog (ELK alternative that works well on ARM)
+  mongodb:
+    image: mongo:5.0
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+    platform: linux/arm64
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.9
+    environment:
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "discovery.type=single-node"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    restart: unless-stopped
+    platform: linux/arm64
+
+  graylog:
+    image: graylog/graylog:5.0
+    environment:
+      - GRAYLOG_PASSWORD_SECRET=somepasswordpepper
+      - GRAYLOG_ROOT_PASSWORD_SHA2=8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918
+      - GRAYLOG_HTTP_EXTERNAL_URI=http://localhost:9000/
+      - GRAYLOG_ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - GRAYLOG_MONGODB_URI=mongodb://mongodb:27017/graylog
+    ports:
+      - "9000:9000"   # Web interface
+      - "1514:1514"   # Syslog TCP
+      - "1514:1514/udp" # Syslog UDP
+      - "12201:12201" # GELF TCP
+      - "12201:12201/udp" # GELF UDP
+    depends_on:
+      - mongodb
+      - elasticsearch
+    restart: unless-stopped
+    platform: linux/arm64
+
+  # Firewall Server (using Alpine with iptables)
+  firewall:
+    image: alpine:latest
+    command: >
+      sh -c "apk add --no-cache rsyslog iptables &&
+             mkdir -p /etc/rsyslog.d &&
+             echo '*.* @graylog:1514' > /etc/rsyslog.d/10-graylog.conf &&
+             rsyslogd -n &
+             tail -f /dev/null"
+    depends_on:
+      - graylog
+    restart: unless-stopped
+
+  # Web Server (Nginx)
+  webserver:
+    image: nginx:alpine
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/html:/usr/share/nginx/html
+    ports:
+      - "8080:80"
+    command: >
+      sh -c "apk add --no-cache rsyslog &&
+             mkdir -p /etc/rsyslog.d &&
+             echo '*.* @graylog:1514' > /etc/rsyslog.d/10-graylog.conf &&
+             rsyslogd -n &
+             nginx -g 'daemon off;'"
+    depends_on:
+      - graylog
+    restart: unless-stopped
+
+  # Router (using Alpine with routing capabilities)
+  router:
+    image: alpine:latest
+    cap_add:
+      - NET_ADMIN
+    command: >
+      sh -c "apk add --no-cache rsyslog iptables &&
+             mkdir -p /etc/rsyslog.d &&
+             echo '*.* @graylog:1514' > /etc/rsyslog.d/10-graylog.conf &&
+             rsyslogd -n &
+             tail -f /dev/null"
+    depends_on:
+      - graylog
+    restart: unless-stopped
+
+  # Simplified IDPS container (just to demonstrate logging)
+  suricata:
+    image: alpine:latest
+    volumes:
+      - ./suricata/rules:/rules
+    cap_add:
+      - NET_ADMIN
+    command: >
+      sh -c "apk add --no-cache rsyslog &&
+             mkdir -p /etc/rsyslog.d &&
+             echo '*.* @graylog:1514' > /etc/rsyslog.d/10-graylog.conf &&
+             rsyslogd -n &
+             echo 'Starting simulated IDPS service...' &&
+             # Simulate some security logs for demonstration
+             while true; do
+               logger -t IDPS 'Monitoring network for intrusions';
+               sleep 60;
+             done"
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+  elasticsearch_data:
+  suricata_logs:
+  
